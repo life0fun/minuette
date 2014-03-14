@@ -13,8 +13,8 @@
                    ending-daily-at with-interval-in-minutes]]
               ))
 
+; this module interface to quartzite lib to Quartz.
 (defn schedule
   [request]
   (prn "scheduling " request)
   request)
-

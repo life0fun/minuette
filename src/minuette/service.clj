@@ -63,7 +63,6 @@
      ["/msgs" {:get subscribe :post publish}
         "/events" {:get wait-for-events}]   ; define the route for later url-for redirect
      ["/about" {:get about-page}]
-     ["/login" {:post get-signup-login}]
      ["/api/schedule" {:get get-schedule :post add-schedule}]
     ]]])
 
