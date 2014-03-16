@@ -1,4 +1,22 @@
 (ns minuette.service
+  (:require [io.pedestal.service.http :as bootstrap]
+            [io.pedestal.service.http.route :as route]
+            [io.pedestal.service.http.route.definition :refer [defroutes]]
+            [io.pedestal.service.http.body-params :as body-params]
+            [ring.util.response :as ring-response]
+            [io.pedestal.service.http.servlet :as ps]
+            [io.pedestal.service.log :as log]
+            ;; the impl dependencies will go away
+            [io.pedestal.service.impl.interceptor :as interceptor]
+            [io.pedestal.service.interceptor :refer [definterceptor handler]]
+            [io.pedestal.service.http.impl.servlet-interceptor :as servlet-interceptor]
+            [io.pedestal.service.http.ring-middlewares :as middlewares]
+            ;; these next two will collapse to one
+            [io.pedestal.service.http.route :as route]
+            [io.pedestal.service.http.route.definition :refer [defroutes]]
+            [io.pedestal.service.http.sse :refer :all]
+            [ring.util.mime-type :as ring-mime]
+            [ring.middleware.session.cookie :as cookie])
     (:require [io.pedestal.service.http :as bootstrap]
               [io.pedestal.service.http.route :as route]
               [io.pedestal.service.http.body-params :as body-params]
@@ -19,6 +37,13 @@
   (ring-resp/response "Hello World!"))
 
 
+; gen uuid session id
+(defn- gen-session-id [] (.toString (java.util.UUID/randomUUID)))
+
+; session intercept to extract cookie.
+(definterceptor session-interceptor
+  (middlewares/session {:store (cookie/cookie-store)}))
+
 ;;==================================================================================
 ;
 ;;==================================================================================
@@ -38,28 +63,40 @@
 
 
 ;;==================================================================================
-; POST form details to add a schedule
-; reqbody is body when xhr-request on api service side
+; POST form details to add a schedule, request map.
+; {:session {}, :servlet-path "", :path-params {}, :form-params {"detail" "123", ...}
+; :cookies {}, :path-info "/api/schedule", :uri "/api/schedule", :request-method :post, :query-string nil,
+; :params {"detail" "123", "min" "3", "hour" "14", "weekdays" "[1,2]"}, 
+; :headers {"origin" "", "host" "localhost:8080", "accept" "*/*", "content-length" "39", "content-type" "application/x-www-form-urlencoded"
 ;;==================================================================================
 (defn add-schedule
   "add a schedule upon post request, request contains post data"
   [{reqbody :edn-params :as request}]  ; reqbody is json post data
   (let [;resp (bootstrap/json-print {:result msg-data})
-        added-schedule (scheduler/add-schedule (:details reqbody))
+        details (:params request)
+        added-schedule (scheduler/add-schedule details)
         result {:status 200 :schedule added-schedule}
         jsonresp (bootstrap/json-response result)
         ]
-    ; INFO  minuette.service - {:line 52, "service add-schedule " nil}
-    (log/info "add-schedule " request reqbody (:details reqbody))
+    ; INFO  minuette.service - {:line 52, "service add-schedule " {"detail" "123", "min" "3", "weekdays" "[1,2]"}
+    (log/info "add-schedule request " request)
     jsonresp))
 
-;==================================================================================
-;; define routing table with verb map and route interceptor
+;;==================================================================================
+; define routing table with verb map and a list of route interceptors to invoke on request.
+; Each route table is a vector of route vectors. [ [:app-name [nested route vectors]] ]
+; Nested route vector contain path and verb map {:get/:post destination-interceptor}
+; Interceptor can be Ring hdl takes Ring request map and ret Ring resp map, or a vector of Ring handler.
+; Every route incl an interceptor vector marked with ^:interceptors [] to be executed.
+; [[["/order"  ^:interceptors [verify-request] ^:constraints {:user-id #"[0-9]+"}
+;    {:get list-orders :post create-order}
+;    ["/:id"  ^:constraints {:user-id #"[0-9]+"} ^:interceptors [verify-order-ownership load-order-from-db]
+;    {:get view-order :put update-order}]]]]
 ;;==================================================================================
 (defroutes routes
   [[["/" {:get home-page}
-     ;; Set default interceptors for /about and any other paths under /
-     ^:interceptors [(body-params/body-params) bootstrap/html-body]
+     ; set common interceptors to be executed for all routes
+     ^:interceptors [(body-params/body-params) bootstrap/html-body session-interceptor]
      ["/about" {:get about-page}]
      ["/api/schedule/:schedid" {:get get-schedule}]
      ["/api/schedule" {:post add-schedule}]
