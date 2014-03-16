@@ -13,7 +13,7 @@
                  ;; [io.pedestal/pedestal.tomcat "0.2.2"]
 
                  [clojurewerkz/quartzite "1.1.0"]
-                 ]
+                ]
   :min-lein-version "2.0.0"
   :resource-paths ["config", "resources"]
   :aliases {"run-dev" ["trampoline" "run" "-m" "minuette.server/run-dev"]}
