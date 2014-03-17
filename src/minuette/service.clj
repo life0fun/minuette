@@ -3,7 +3,7 @@
             [io.pedestal.service.http.route :as route]
             [io.pedestal.service.http.route.definition :refer [defroutes]]
             [io.pedestal.service.http.body-params :as body-params]
-            [ring.util.response :as ring-response]
+            [ring.util.response :as ring-resp]
             [io.pedestal.service.http.servlet :as ps]
             [io.pedestal.service.log :as log]
             ;; the impl dependencies will go away
@@ -16,15 +16,20 @@
             [io.pedestal.service.http.route.definition :refer [defroutes]]
             [io.pedestal.service.http.sse :refer :all]
             [ring.util.mime-type :as ring-mime]
-            [ring.middleware.session.cookie :as cookie])
-    (:require [io.pedestal.service.http :as bootstrap]
-              [io.pedestal.service.http.route :as route]
-              [io.pedestal.service.http.body-params :as body-params]
-              [io.pedestal.service.http.route.definition :refer [defroutes]]
-              [io.pedestal.service.log :as log]
-              [ring.util.response :as ring-resp]
-              [minuette.quartzite.scheduler :as scheduler]
+            [ring.middleware.session.cookie :as cookie]
+
+            [minuette.quartzite.scheduler :as scheduler]
     ))
+
+
+;; -------------------------------------------------------------------------------
+;; for xhr/request from pedestal app, request body was edn encoded, hence under :end-params key.
+;; destrcture [{reqbody :edn-params :as request}], request context map still :as request.
+;;
+
+; An interceptor is one instance of an Interceptor record or a map with 
+; :enter, :leave, :pause, :resume, and :error keys. 
+
 
 (defn about-page
   [request]
@@ -44,14 +49,15 @@
 (definterceptor session-interceptor
   (middlewares/session {:store (cookie/cookie-store)}))
 
+
 ;;==================================================================================
-;
+; retrieve schedule
 ;;==================================================================================
 (defn get-schedule
   "get things by type, ret from peer a list of thing in a new line sep string"
-  [req]
-  ; path segment in req contains request params, /api/:thing, /api/lecture
-  (let [schedid (get-in req [:path-params :schedid])
+  [req]     ; get req, no post data body.
+  ; path segment in req can be parameterized in nested map.
+  (let [schedid (get-in req [:path-params :schedid]) ; nested map under :path-params
         schedule (scheduler/get-schedule schedid)
         result {:status 200 :schedule schedule}
         jsonresp (bootstrap/json-response result)] ; conver to keyword for query
@@ -71,13 +77,13 @@
 ;;==================================================================================
 (defn add-schedule
   "add a schedule upon post request, request contains post data"
-  [{reqbody :edn-params :as request}]  ; reqbody is json post data
+  [{postbody :edn-params :as request}]   ; xhr/request post data is edn encoded, not usable here.
   (let [;resp (bootstrap/json-print {:result msg-data})
-        details (:params request)
+        details (or postbody (:params request))  ; curl post body in :params
         added-schedule (scheduler/add-schedule details)
         result {:status 200 :schedule added-schedule}
         jsonresp (bootstrap/json-response result)
-        ]
+       ]
     ; INFO  minuette.service - {:line 52, "service add-schedule " {"detail" "123", "min" "3", "weekdays" "[1,2]"}
     (log/info "add-schedule request " request)
     jsonresp))
@@ -91,11 +97,11 @@
 ; [[["/order"  ^:interceptors [verify-request] ^:constraints {:user-id #"[0-9]+"}
 ;    {:get list-orders :post create-order}
 ;    ["/:id"  ^:constraints {:user-id #"[0-9]+"} ^:interceptors [verify-order-ownership load-order-from-db]
-;    {:get view-order :put update-order}]]]]
+;    {:get view-order :post [:make-an-order o/create-order]}]]]]
 ;;==================================================================================
 (defroutes routes
   [[["/" {:get home-page}
-     ; set common interceptors to be executed for all routes
+     ; set intermediate interceptors to be executed for before dest-interceptor.
      ^:interceptors [(body-params/body-params) bootstrap/html-body session-interceptor]
      ["/about" {:get about-page}]
      ["/api/schedule/:schedid" {:get get-schedule}]
